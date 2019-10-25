@@ -9,7 +9,7 @@ import csv
 ## Forecast Methods
 
 def predUsingRollingHorizon(realSeriesVal, frequency =12, startPos = 60):
-    totVal = len(realSeriesVal)
+    totVal = len(realSeriesVal)+1
     toRet = np.zeros(totVal-startPos)
     for i in range(startPos, totVal):
         fit1 = ExponentialSmoothing(realSeriesVal[0:i], seasonal_periods=frequency, trend='add', seasonal='add').fit(use_boxcox=True)
@@ -17,15 +17,17 @@ def predUsingRollingHorizon(realSeriesVal, frequency =12, startPos = 60):
     return toRet
 
 def predRH_Persistence(realSeriesVal, posToPredict = 24):
-    return np.array(realSeriesVal[posToPredict-1:-1])
+    return np.array(realSeriesVal[-posToPredict-1:])
 
 def predRHLinearRegression(realSeriesVal, posToPredict = 24):
     pred = []
     for i in range(posToPredict):
-        auxSeries = realSeriesVal[:-24-i]
+        auxSeries = realSeriesVal[:-posToPredict+i]
         lenAux = len(auxSeries)
         lrFit = linear_model.LinearRegression().fit(np.arange(lenAux).reshape(-1, 1), auxSeries)
         pred.append(float(lrFit.predict(lenAux)))
+    lrFit = linear_model.LinearRegression().fit(np.arange(len(realSeriesVal)).reshape(-1, 1), realSeriesVal)
+    pred.append(float(lrFit.predict(len(realSeriesVal))))
     return np.array(pred)
 
 ## Methods to create the bias term
@@ -33,7 +35,6 @@ def predRHLinearRegression(realSeriesVal, posToPredict = 24):
 def createSecAmount(preds, realValues, frequency = 12, posToPredict = 24):
     def CreateErrors(preds, realValues, startPos, frequency):
         errors = []
-        totPoints = len(preds)
         if startPos >=24:
             count = startPos- frequency
             while count>=0:
@@ -42,17 +43,10 @@ def createSecAmount(preds, realValues, frequency = 12, posToPredict = 24):
             return np.array(errors)
         else:
             return preds[:startPos] - realValues[:startPos]
-        secAmount = []
-        lenOfPred = len(preds)
-        for i in range(posToPredict):
-            posToPredict = lenOfPred - posToPredict -1
-            errors = CreateErrors(preds, realValues, posToPredict, frequency)
-            secAmount.append(np.std(erros)*0.67)
-        return secAmount
     secAmount = []
     lenOfPred = len(preds)
-    for i in range(posToPredict):
-        startPos = lenOfPred - posToPredict - i
+    for i in range(posToPredict+1):
+        startPos = lenOfPred - posToPredict + i
         errors = CreateErrors(preds, realValues, startPos, frequency)
         secAmount.append(np.std(errors)*0.67)
     return secAmount
@@ -60,9 +54,8 @@ def createSecAmount(preds, realValues, frequency = 12, posToPredict = 24):
 
 ## Method to predict oth the forecast and bias term
 def predMethod(realSeriesVal, frequency =12, numToPredict = 24):
-    predForecast = np.zeros(numToPredict)
-    secAmount = np.zeros(numToPredict)
-    
+    predForecast = np.zeros(numToPredict+1)
+    secAmount = np.zeros(numToPredict+1)
     if (len(realSeriesVal) - numToPredict)<= 0:
         print('You want to predict more points than the data you have.')
     elif (len(realSeriesVal) - numToPredict)<= 12:
@@ -73,15 +66,12 @@ def predMethod(realSeriesVal, frequency =12, numToPredict = 24):
         predForecast = predRHLinearRegression(realSeriesVal, posToPredict = numToPredict)
     else:
         print('We will use HolterWinter and a bias term for our prediction.')
-        aux = len(realSeriesVal) - numToPredict
-        if aux<=72:
-            startpos = 24
-        else:
-            startpos = aux - 48
-        predForecast = predUsingRollingHorizon(realSeriesVal, frequency =frequency, startPos = startpos)
+        startpos = 24
+        predForecast = predUsingRollingHorizon(realSeriesVal, frequency = frequency, startPos = startpos)
         secAmount = createSecAmount(predForecast, realSeriesVal[startpos:], frequency = frequency, posToPredict = numToPredict)
-        predForecast = predForecast[-24:]
+        predForecast = predForecast[-numToPredict-1:]
     return predForecast, secAmount
+
 
 ## Method to Create the Starting/Ending Inventory, Order Quantity, 
 def createStartEndInvAndOrderQuantity(forecastPlusSec, realDemand, inv0):
@@ -94,7 +84,7 @@ def createStartEndInvAndOrderQuantity(forecastPlusSec, realDemand, inv0):
         startInv = finalInv
         orderQuantity = np.round(np.max(forecastPlusSec[i] - startInv, 0), decimals = 2)
         auxTerm = orderQuantity + startInv - realDemand[i]
-        finalInv = np.max(auxTerm, 0)
+        finalInv = np.maximum(auxTerm, 0)
         toRet[i,0] = startInv
         toRet[i,1] = orderQuantity
         toRet[i,2] = finalInv
@@ -175,7 +165,7 @@ if __name__ == '__main__':
     print('Running the forecast method and bias term.')
     predForecast, secAmount = predMethod(np.array(DFDemand['Demand']), frequency =12, numToPredict = numToPredict)
 
-    dataToAdd = createStartEndInvAndOrderQuantity(predForecast+secAmount, np.array(DFDemand['Demand'])[-numToPredict:], inv0 = inv0)
+    dataToAdd = createStartEndInvAndOrderQuantity(predForecast[:-1]+secAmount[:-1], np.array(DFDemand['Demand'])[-numToPredict:], inv0 = inv0)
 
     dfResults = DFDemand[len(DFDemand['Demand'])-numToPredict:].copy()
 
@@ -184,6 +174,8 @@ if __name__ == '__main__':
     dfResults['Final_Inventory'] = dataToAdd[:,2]
     dfResults['Holding_Cost'] = dataToAdd[:,3]
     dfResults['Shortage_Cost'] = dataToAdd[:,4]
+
+
 
     print('We will save in the current folder the results in ResultsLobosPais_OriginalFormat.csv')
     print('and ResultsLobosPais.csv, depending if you preffer to have a the results in a better format.')
@@ -215,3 +207,12 @@ if __name__ == '__main__':
     csvFile.close()
 
     print()
+
+
+    print('Let us check the order for the next month')
+    hwNextMonth = np.round(predForecast[-1], decimals = 2)
+    biasTerm = np.round(secAmount[-1], decimals = 2)
+    startingInvNextMonth = dfResults['Final_Inventory'].values[-1]
+    print('Final Inventory : '+str(startingInvNextMonth)+\
+        ', HolterWinter '+str(hwNextMonth)+', Bias Term: '+str(biasTerm))
+    print('Order Quantity News Month: '+str(np.maximum(hwNextMonth+biasTerm-startingInvNextMonth,0)))
