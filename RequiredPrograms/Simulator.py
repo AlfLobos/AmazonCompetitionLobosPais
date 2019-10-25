@@ -68,7 +68,7 @@ def predMethod(realSeriesVal, frequency =12, numToPredict = 24):
         print('We will use HolterWinter and a bias term for our prediction.')
         startpos = 24
         predForecast = predUsingRollingHorizon(realSeriesVal, frequency = frequency, startPos = startpos)
-        secAmount = createSecAmount(predForecast, realSeriesVal[startpos:], frequency = frequency, posToPredict = numToPredict)
+        secAmount = createSecAmount(predForecast[:-1], realSeriesVal[startpos:], frequency = frequency, posToPredict = numToPredict)
         predForecast = predForecast[-numToPredict-1:]
     return predForecast, secAmount
 
@@ -165,6 +165,7 @@ if __name__ == '__main__':
     print('Running the forecast method and bias term.')
     predForecast, secAmount = predMethod(np.array(DFDemand['Demand']), frequency =12, numToPredict = numToPredict)
 
+
     dataToAdd = createStartEndInvAndOrderQuantity(predForecast[:-1]+secAmount[:-1], np.array(DFDemand['Demand'])[-numToPredict:], inv0 = inv0)
 
     dfResults = DFDemand[len(DFDemand['Demand'])-numToPredict:].copy()
@@ -214,5 +215,6 @@ if __name__ == '__main__':
     biasTerm = np.round(secAmount[-1], decimals = 2)
     startingInvNextMonth = dfResults['Final_Inventory'].values[-1]
     print('Final Inventory : '+str(startingInvNextMonth)+\
-        ', HolterWinter '+str(hwNextMonth)+', Bias Term: '+str(biasTerm))
-    print('Order Quantity News Month: '+str(np.maximum(hwNextMonth+biasTerm-startingInvNextMonth,0)))
+        ', HolterWinter/LR/Persistence (as corresponds) '+str(hwNextMonth)+', Bias Term: '+str(biasTerm))
+    print('Order Quantity News Month: ' + \
+        str(np.maximum(np.round(hwNextMonth+biasTerm-startingInvNextMonth, decimals = 2),0)))
